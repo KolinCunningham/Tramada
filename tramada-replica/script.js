@@ -150,10 +150,43 @@ const state = {
   view: "itinerary",
   segmentType: "Flight",
   showMode: "Non canceled itinerary segments",
-  selectedSegmentId: "s6",
+  selectedSegmentId: "",
   selectedImportId: "mail-rail",
   sortIntroChoice: "itinerary"
 };
+
+const browserStorageKey = "tramadaReplicaState";
+const persistence = {
+  loaded: false,
+  serverReady: false,
+  saveTimer: 0
+};
+
+Object.assign(bookings[0], {
+  client: "CLIENT/NEW",
+  clientName: "Imported Client",
+  passengers: [],
+  pax: 0,
+  itinerary: "Imported itinerary",
+  bookDate: "",
+  depDate: "",
+  bookingReference: "",
+  title: "Imported Booking",
+  contactEmail: "",
+  supplierConsultant: "",
+  status: "Booked",
+  priority: "Normal",
+  statusNote: "",
+  profileNotes: "",
+  quickNote: "",
+  references: [],
+  lifecycle: [],
+  documents: [],
+  transactions: [],
+  segments: [blankSegment("blank-1")]
+});
+state.selectedSegmentId = "blank-1";
+bookings.forEach(ensureBookingShape);
 
 const routeViews = new Set([
   "home",
@@ -261,8 +294,71 @@ function seg(id, type, reference, passengers, startDate, startTime, finishDate, 
   };
 }
 
+function blankSegment(id = `new-${Date.now()}`, type = "") {
+  return seg(id, type, "", "", "", "", "", "", "", "", "", "");
+}
+
+function ensureBookingShape(item) {
+  item.id = item.id || `booking-${Date.now()}`;
+  item.client = item.client || "CLIENT/NEW";
+  item.clientName = item.clientName || "Imported Client";
+  item.passengers = Array.isArray(item.passengers) ? item.passengers : [];
+  item.pax = item.passengers.length;
+  item.debtor = item.debtor || "Retail Client";
+  item.itinerary = item.itinerary || item.title || "Imported itinerary";
+  item.bookDate = item.bookDate || "";
+  item.depDate = item.depDate || "";
+  item.consultant = item.consultant || "";
+  item.bookingReference = item.bookingReference || "";
+  item.title = item.title || "Imported Booking";
+  item.contactEmail = item.contactEmail || "";
+  item.supplierConsultant = item.supplierConsultant || "";
+  item.status = item.status || "Booked";
+  item.priority = item.priority || "Normal";
+  item.statusNote = item.statusNote || "";
+  item.profileNotes = item.profileNotes || "";
+  item.quickNote = item.quickNote || "";
+  item.references = Array.isArray(item.references) ? item.references : [];
+  item.lifecycle = Array.isArray(item.lifecycle) ? item.lifecycle : [];
+  item.documents = Array.isArray(item.documents) ? item.documents : [];
+  item.transactions = Array.isArray(item.transactions) ? item.transactions : [];
+  item.segments = Array.isArray(item.segments) && item.segments.length ? item.segments : [blankSegment("blank-1")];
+  item.segments.forEach((segment) => {
+    segment.id = segment.id || `segment-${Date.now()}`;
+    segment.type = segment.type || "";
+    segment.reference = segment.reference || "";
+    segment.passengers = segment.passengers || "";
+    segment.startDate = segment.startDate || "";
+    segment.startTime = segment.startTime || "";
+    segment.finishDate = segment.finishDate || "";
+    segment.finishTime = segment.finishTime || "";
+    segment.startCity = segment.startCity || "";
+    segment.finishCity = segment.finishCity || "";
+    segment.status = segment.status || "";
+    segment.service = segment.service || "";
+    segment.supplier = segment.supplier || "";
+    segment.supplierRate = segment.supplierRate || "0.00";
+    segment.fee = segment.fee || "0.00";
+    segment.markup = segment.markup || "0.00";
+    segment.tax = segment.tax || "0.00";
+  });
+  return item;
+}
+
+function replaceBookings(nextBookings) {
+  if (Array.isArray(nextBookings) && nextBookings.length) {
+    bookings.splice(0, bookings.length, ...nextBookings.map(ensureBookingShape));
+  } else {
+    bookings.forEach(ensureBookingShape);
+  }
+  if (!bookings.some((item) => item.id === state.bookingId)) {
+    state.bookingId = bookings[0]?.id || "18618";
+  }
+  state.selectedSegmentId = booking().segments[0]?.id || "";
+}
+
 function booking() {
-  return bookings.find((item) => item.id === state.bookingId) || bookings[0];
+  return ensureBookingShape(bookings.find((item) => item.id === state.bookingId) || bookings[0]);
 }
 
 function selectedSegment() {
@@ -280,6 +376,77 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function stateSnapshot() {
+  return {
+    savedAt: new Date().toISOString(),
+    bookings
+  };
+}
+
+async function loadPersistedState() {
+  updateSaveStatus("Loading saved data...");
+  try {
+    const response = await fetch("/api/state", { cache: "no-store" });
+    if (response.ok) {
+      const data = await response.json();
+      persistence.serverReady = true;
+      if (Array.isArray(data.bookings) && data.bookings.length) {
+        replaceBookings(data.bookings);
+        updateSaveStatus("Loaded from server");
+        return;
+      }
+    }
+  } catch (error) {
+    persistence.serverReady = false;
+  }
+
+  const saved = window.localStorage.getItem(browserStorageKey);
+  if (saved) {
+    try {
+      replaceBookings(JSON.parse(saved).bookings);
+      updateSaveStatus("Loaded from browser");
+      return;
+    } catch (error) {
+      window.localStorage.removeItem(browserStorageKey);
+    }
+  }
+  replaceBookings(bookings);
+  updateSaveStatus("Ready to save");
+}
+
+function persistData(reason = "Saved") {
+  if (!persistence.loaded) return;
+  const payload = stateSnapshot();
+  window.localStorage.setItem(browserStorageKey, JSON.stringify(payload));
+  window.clearTimeout(persistence.saveTimer);
+  persistence.saveTimer = window.setTimeout(() => saveToServer(payload, reason), 150);
+  updateSaveStatus("Saving...");
+}
+
+async function saveToServer(payload, reason) {
+  if (!persistence.serverReady) {
+    updateSaveStatus("Saved in browser");
+    return;
+  }
+  try {
+    const response = await fetch("/api/state", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    updateSaveStatus(`${reason} to server`);
+  } catch (error) {
+    persistence.serverReady = false;
+    updateSaveStatus("Server unavailable, saved in browser");
+  }
+}
+
+function updateSaveStatus(message) {
+  const node = document.getElementById("saveStatus");
+  if (node) node.textContent = message;
 }
 
 function render() {
@@ -334,16 +501,25 @@ function renderMenu() {
 
 function renderMain() {
   const area = document.getElementById("workArea");
-  if (state.view === "itinerary") area.innerHTML = itineraryView();
+  if (state.view === "summary") area.innerHTML = summaryView();
+  else if (state.view === "itinerary") area.innerHTML = itineraryView();
   else if (state.view === "edit") area.innerHTML = editView();
   else if (state.view === "sort") area.innerHTML = sortIntroView();
   else if (state.view === "sortManual") area.innerHTML = sortManualView();
-  else if (state.view === "documents" || state.view === "emaildocs") area.innerHTML = documentsView();
+  else if (state.view === "documents") area.innerHTML = documentsView("Itinerary Document Preview");
+  else if (state.view === "emaildocs") area.innerHTML = documentsView("Email Documents");
   else if (state.view === "content" || state.view === "calypso") area.innerHTML = contentImportView();
   else if (state.view === "bookings") area.innerHTML = bookingsView();
   else if (state.view === "profile") area.innerHTML = profileView();
+  else if (state.view === "references") area.innerHTML = referencesView();
   else if (state.view === "passengers") area.innerHTML = passengersView();
-  else if (state.view === "costing" || state.view === "account" || state.view === "invoices" || state.view === "payments") area.innerHTML = costingView();
+  else if (state.view === "lifecycle") area.innerHTML = lifecycleView();
+  else if (state.view === "status") area.innerHTML = statusView();
+  else if (state.view === "quickedit") area.innerHTML = quickEditView();
+  else if (state.view === "paydocs") area.innerHTML = documentsView("Pay Now Documents");
+  else if (state.view === "costing") area.innerHTML = costingView();
+  else if (["account", "invoices", "receipts", "payments", "orderpayments", "ledgers", "proration", "pglog"].includes(state.view)) area.innerHTML = transactionView(state.view);
+  else if (["home", "clients", "creditors", "debtors", "reports"].includes(state.view)) area.innerHTML = searchShellView(state.view);
   else area.innerHTML = placeholderView(state.view);
   wireCurrentView();
 }
@@ -355,6 +531,65 @@ function pageHeading(title, actions = "") {
       <div class="help-links">Help<br>Knowledge Base</div>
     </div>
     ${actions}
+  `;
+}
+
+function summaryView() {
+  const current = booking();
+  return `
+    ${pageHeading("Booking Summary", `
+      <div class="form-actions">
+        <button class="form-button" type="submit" form="bookingSummaryForm">Save Summary</button>
+      </div>
+    `)}
+    <form id="bookingSummaryForm" data-booking-details>
+      <section class="panel">
+        <div class="two-col">
+          <div class="form-grid">
+            <label for="client">Client</label><input id="client" name="client" value="${escapeHtml(current.client)}">
+            <label for="clientName">Client Name</label><input id="clientName" name="clientName" value="${escapeHtml(current.clientName)}">
+            <label for="debtor">Debtor</label><input id="debtor" name="debtor" value="${escapeHtml(current.debtor)}">
+            <label for="itinerary">Itinerary</label><input id="itinerary" name="itinerary" value="${escapeHtml(current.itinerary)}">
+            <label for="title">Booking Title</label><input id="title" name="title" value="${escapeHtml(current.title)}">
+          </div>
+          <div class="form-grid">
+            <label for="bookingReference">Booking Ref.</label><input id="bookingReference" name="bookingReference" value="${escapeHtml(current.bookingReference)}">
+            <label for="bookDate">Book Date</label><input id="bookDate" name="bookDate" value="${escapeHtml(current.bookDate)}">
+            <label for="depDate">Dep. Date</label><input id="depDate" name="depDate" value="${escapeHtml(current.depDate)}">
+            <label for="consultant">Consultant</label><input id="consultant" name="consultant" value="${escapeHtml(current.consultant)}">
+            <label for="status">Status</label>
+            <select id="status" name="status">${["Booked", "Pending", "Ticketed", "Cancelled"].map((value) => `<option ${current.status === value ? "selected" : ""}>${value}</option>`).join("")}</select>
+          </div>
+        </div>
+      </section>
+    </form>
+    <div class="summary-grid">
+      <div class="metric"><strong>${escapeHtml(current.segments.length)}</strong>Segments</div>
+      <div class="metric"><strong>${escapeHtml(current.passengers.length)}</strong>Passengers</div>
+      <div class="metric"><strong>${escapeHtml(current.references.length)}</strong>References</div>
+      <div class="metric"><strong>${escapeHtml(current.transactions.length)}</strong>Transactions</div>
+    </div>
+  `;
+}
+
+function searchShellView(view) {
+  const labels = {
+    home: "Home",
+    clients: "Client Search",
+    creditors: "Creditor Search",
+    debtors: "Debtor Search",
+    reports: "Reports"
+  };
+  const current = booking();
+  return `
+    ${pageHeading(labels[view] || titleCase(view))}
+    <section class="panel">
+      <div class="form-grid">
+        <label>Current Booking</label><input readonly value="${escapeHtml(current.id)} - ${escapeHtml(current.clientName)}">
+        <label>Search</label><input value="">
+        <label>Result</label><input readonly value="This replica keeps searches inside the current test booking file.">
+      </div>
+    </section>
   `;
 }
 
@@ -435,6 +670,15 @@ function segmentRow(item, index, withActions) {
 
 function editView() {
   const item = selectedSegment();
+  if (!item) {
+    return `
+      ${pageHeading("Add / Edit Segment")}
+      <section class="panel">
+        <p>No segment is selected.</p>
+        <button class="form-button" type="button" data-action="add-segment">Add Segment</button>
+      </section>
+    `;
+  }
   const current = booking();
   return `
     ${pageHeading(`Add / Edit ${segmentKind(item.type)} Segment (245252)`, `
@@ -472,7 +716,7 @@ function editView() {
 
 function segmentKind(type) {
   const names = { FLT: "Flight", HTL: "Hotel", TSF: "Transfer", TRN: "Train", COM: "Component", TUR: "Tour" };
-  return names[type] || "Tour";
+  return names[type] || "Segment";
 }
 
 function supplierFieldset(item) {
@@ -528,6 +772,8 @@ function serviceFieldset(item) {
     <fieldset>
       <legend>Service Info</legend>
       <div class="form-grid">
+        <label for="reference">Reference</label>
+        <input id="reference" name="reference" value="${escapeHtml(item.reference)}">
         <label for="service">Free Text</label>
         <input id="service" name="service" value="${escapeHtml(item.service)}">
         <label for="startLocation">Start Location</label>
@@ -646,14 +892,15 @@ function sortManualView() {
   `;
 }
 
-function documentsView() {
+function documentsView(title = "Itinerary Document Preview") {
   const current = booking();
   const days = documentDays(current);
   return `
-    ${pageHeading("Itinerary Document Preview", `
+    ${pageHeading(title, `
       <div class="toolbar">
         <button class="table-button" type="button" data-action="print-document">Print</button>
         <button class="table-button" type="button" data-action="email-document">Email Document</button>
+        <button class="table-button" type="submit" form="documentListForm">Save Changes</button>
       </div>
     `)}
     <article class="document-shell" data-testid="itinerary-document-preview">
@@ -682,24 +929,46 @@ function documentsView() {
         </section>
       `).join("")}
     </article>
+    <section class="panel" style="margin-top:14px">
+      <form id="documentForm">
+        <div class="form-grid">
+          <label for="documentType">Document Type</label>
+          <select id="documentType" name="type"><option>Itinerary</option><option>Email</option><option>Voucher</option><option>Pay Now</option><option>Supplier PDF</option></select>
+          <label for="documentTitle">Title</label><input id="documentTitle" name="title" value="">
+          <label for="documentNote">Notes</label><input id="documentNote" name="note" value="">
+        </div>
+        <div class="record-actions"><button class="form-button" type="submit">Add Document Record</button></div>
+      </form>
+    </section>
+    <form id="documentListForm">
+      <table class="grid-table">
+        <thead><tr><th style="width:70px">Action</th><th>Type</th><th>Title</th><th>Notes</th></tr></thead>
+        <tbody>
+          ${current.documents.map((item) => `
+            <tr>
+              <td><button class="icon-button delete" type="button" data-action="delete-document" data-id="${escapeHtml(item.id)}">X</button></td>
+              <td><input name="${escapeHtml(item.id)}__type" value="${escapeHtml(item.type)}"></td>
+              <td><input name="${escapeHtml(item.id)}__title" value="${escapeHtml(item.title)}"></td>
+              <td><input name="${escapeHtml(item.id)}__note" value="${escapeHtml(item.note)}"></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </form>
   `;
 }
 
 function documentDays(current) {
-  if (current.id === "18618") {
-    return [
-      { heading: "Saturday 24 Oct 2026", items: ["Own Arrangements - Flight QF59 from Sydney Airport to Haneda Airport Arr. 20:10", "Private Car from Narita Airport to Tokyo Hotel", "Own Tokyo Hotel arrangement - Shangri-La Tokyo (24-27 Oct)"] },
-      { heading: "Sunday 25 Oct 2026", items: ["Full Day Private Guide Service in Tokyo", "Suggested Guided Sightseeing in Tokyo: Traditional and Gardens"] },
-      { heading: "Monday 26 Oct 2026", items: ["Full Day Private Guide Service for Hakone & Mount Fuji", "Private Car for Mount Fuji & Hakone Sightseeing"] },
-      { heading: "Tuesday 27 Oct 2026", items: ["Private Car from Hotel to Tokyo Station", "Transfer by train from Tokyo to Kanazawa", "Kanazawa | Hyatt Centric Kanazawa"] },
-      { heading: "Wednesday 28 Oct 2026", items: ["Full Day Private Guide Service in Kanazawa", "Kanazawa | Hyatt Centric Kanazawa"] }
-    ];
-  }
-  return [
-    { heading: "Friday 22 May 2026", items: ["Arrival in Malta", "Lands End Boutique Hotel"] },
-    { heading: "Monday 01 Jun 2026", items: ["Departure Transfer Hotel to CTA Airport", "Flight Catania to Rome"] },
-    { heading: "Thursday 04 Jun 2026", items: ["Rail Europe Rome to Florence", "Florence independent arrangements"] }
-  ];
+  const datedSegments = current.segments.filter((item) => item.service || item.reference || item.startDate);
+  if (!datedSegments.length) return [{ heading: "No itinerary loaded", items: ["Add booking segments or import a client PDF to build the document preview."] }];
+  const grouped = datedSegments.reduce((days, item) => {
+    const heading = readableDate(item.startDate || item.finishDate || "");
+    const key = heading || "Unscheduled";
+    if (!days[key]) days[key] = [];
+    days[key].push(`${item.type || "SEG"} ${item.service || item.reference || "Untitled segment"}`);
+    return days;
+  }, {});
+  return Object.entries(grouped).map(([heading, items]) => ({ heading, items }));
 }
 
 function contentImportView() {
@@ -802,35 +1071,186 @@ function bookingsView() {
 function profileView() {
   const current = booking();
   return `
-    ${pageHeading("Client Profile")}
-    <section class="panel">
-      <div class="two-col">
-        <div class="form-grid">
-          <label>Client</label><input value="${escapeHtml(current.client)}">
-          <label>Client Name</label><input value="${escapeHtml(current.clientName)}">
-          <label>Debtor</label><input value="${escapeHtml(current.debtor)}">
-          <label>Consultant</label><input value="${escapeHtml(current.consultant)}">
-        </div>
-        <div class="form-grid">
-          <label>Booking Reference</label><input value="${escapeHtml(current.bookingReference)}">
-          <label>Book Date</label><input value="${escapeHtml(current.bookDate)}">
-          <label>Dep. Date</label><input value="${escapeHtml(current.depDate)}">
-          <label>Status</label><input value="Booked" class="readonly">
-        </div>
+    ${pageHeading("Client Profile", `
+      <div class="form-actions">
+        <button class="form-button" type="submit" form="clientProfileForm">Save Profile</button>
       </div>
+    `)}
+    <form id="clientProfileForm" data-booking-details>
+      <section class="panel">
+        <div class="two-col">
+          <div class="form-grid">
+            <label for="profileClient">Client</label><input id="profileClient" name="client" value="${escapeHtml(current.client)}">
+            <label for="profileClientName">Client Name</label><input id="profileClientName" name="clientName" value="${escapeHtml(current.clientName)}">
+            <label for="profileDebtor">Debtor</label><input id="profileDebtor" name="debtor" value="${escapeHtml(current.debtor)}">
+            <label for="profileConsultant">Consultant</label><input id="profileConsultant" name="consultant" value="${escapeHtml(current.consultant)}">
+            <label for="profileEmail">Client Email</label><input id="profileEmail" name="contactEmail" value="${escapeHtml(current.contactEmail)}">
+          </div>
+          <div class="form-grid">
+            <label for="profileBookingReference">Booking Reference</label><input id="profileBookingReference" name="bookingReference" value="${escapeHtml(current.bookingReference)}">
+            <label for="profileBookDate">Book Date</label><input id="profileBookDate" name="bookDate" value="${escapeHtml(current.bookDate)}">
+            <label for="profileDepDate">Dep. Date</label><input id="profileDepDate" name="depDate" value="${escapeHtml(current.depDate)}">
+            <label for="profileTitle">Itinerary Title</label><input id="profileTitle" name="title" value="${escapeHtml(current.title)}">
+            <label for="profileStatus">Status</label><input id="profileStatus" name="status" value="${escapeHtml(current.status)}">
+          </div>
+        </div>
+        <div class="form-grid" style="margin-top:10px">
+          <label for="profileNotes">Client Notes</label>
+          <textarea class="wide-textarea" id="profileNotes" name="profileNotes">${escapeHtml(current.profileNotes)}</textarea>
+        </div>
+      </section>
+    </form>
+  `;
+}
+
+function referencesView() {
+  const current = booking();
+  return `
+    ${pageHeading("References", `
+      <div class="form-actions">
+        <button class="form-button" type="submit" form="referenceListForm">Save Changes</button>
+      </div>
+    `)}
+    <section class="panel">
+      <form id="referenceForm">
+        <div class="form-grid">
+          <label for="referenceType">Reference Type</label>
+          <select id="referenceType" name="type"><option>Supplier</option><option>Airline</option><option>Hotel</option><option>Client</option><option>Internal</option></select>
+          <label for="referenceValue">Reference</label><input id="referenceValue" name="value" value="">
+          <label for="referenceNotes">Notes</label><input id="referenceNotes" name="notes" value="">
+        </div>
+        <div class="record-actions"><button class="form-button" type="submit">Add Reference</button></div>
+      </form>
     </section>
+    <form id="referenceListForm">
+      <table class="grid-table">
+        <thead><tr><th style="width:70px">Action</th><th>Type</th><th>Reference</th><th>Notes</th></tr></thead>
+        <tbody>
+          ${current.references.map((item) => `
+            <tr>
+              <td><button class="icon-button delete" type="button" data-action="delete-reference" data-id="${escapeHtml(item.id)}">X</button></td>
+              <td><input name="${escapeHtml(item.id)}__type" value="${escapeHtml(item.type)}"></td>
+              <td><input name="${escapeHtml(item.id)}__value" value="${escapeHtml(item.value)}"></td>
+              <td><input name="${escapeHtml(item.id)}__notes" value="${escapeHtml(item.notes)}"></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </form>
+  `;
+}
+
+function lifecycleView() {
+  const current = booking();
+  return `
+    ${pageHeading("Life Cycle", `
+      <div class="form-actions">
+        <button class="form-button" type="submit" form="lifecycleListForm">Save Changes</button>
+      </div>
+    `)}
+    <section class="panel">
+      <form id="lifecycleForm">
+        <div class="form-grid">
+          <label for="lifecycleDate">Date</label><input id="lifecycleDate" name="date" value="${new Date().toLocaleDateString("en-GB").replaceAll("/", "-")}">
+          <label for="lifecycleType">Type</label>
+          <select id="lifecycleType" name="type"><option>Note</option><option>Email</option><option>Call</option><option>Task</option><option>Imported PDF</option></select>
+          <label for="lifecycleNote">Details</label><input id="lifecycleNote" name="note" value="">
+        </div>
+        <div class="record-actions"><button class="form-button" type="submit">Add Entry</button></div>
+      </form>
+    </section>
+    <form id="lifecycleListForm">
+      <table class="grid-table">
+        <thead><tr><th style="width:70px">Action</th><th>Date</th><th>Type</th><th>Details</th></tr></thead>
+        <tbody>
+          ${current.lifecycle.map((item) => `
+            <tr>
+              <td><button class="icon-button delete" type="button" data-action="delete-lifecycle" data-id="${escapeHtml(item.id)}">X</button></td>
+              <td><input name="${escapeHtml(item.id)}__date" value="${escapeHtml(item.date)}"></td>
+              <td><input name="${escapeHtml(item.id)}__type" value="${escapeHtml(item.type)}"></td>
+              <td><input name="${escapeHtml(item.id)}__note" value="${escapeHtml(item.note)}"></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </form>
+  `;
+}
+
+function statusView() {
+  const current = booking();
+  return `
+    ${pageHeading("Status", `
+      <div class="form-actions">
+        <button class="form-button" type="submit" form="statusForm">Save Status</button>
+      </div>
+    `)}
+    <form id="statusForm">
+      <section class="panel">
+        <div class="form-grid">
+          <label for="bookingStatus">Booking Status</label>
+          <select id="bookingStatus" name="status">${["Booked", "Pending", "Ticketed", "Cancelled"].map((value) => `<option ${current.status === value ? "selected" : ""}>${value}</option>`).join("")}</select>
+          <label for="priority">Priority</label>
+          <select id="priority" name="priority">${["Normal", "Watch", "Urgent"].map((value) => `<option ${current.priority === value ? "selected" : ""}>${value}</option>`).join("")}</select>
+          <label for="statusNote">Status Note</label>
+          <textarea class="wide-textarea" id="statusNote" name="statusNote">${escapeHtml(current.statusNote)}</textarea>
+        </div>
+      </section>
+    </form>
+  `;
+}
+
+function quickEditView() {
+  const current = booking();
+  return `
+    ${pageHeading("Quick Edit", `
+      <div class="form-actions">
+        <button class="form-button" type="submit" form="quickEditForm">Save Quick Edit</button>
+      </div>
+    `)}
+    <form id="quickEditForm">
+      <table class="grid-table">
+        <thead><tr><th style="width:56px">Type</th><th>Reference</th><th>Free Text</th><th style="width:84px">Start</th><th style="width:84px">Finish</th><th style="width:58px">From</th><th style="width:58px">To</th><th style="width:54px">Status</th></tr></thead>
+        <tbody>
+          ${current.segments.map((item) => `
+            <tr>
+              <td><input name="${escapeHtml(item.id)}__type" value="${escapeHtml(item.type)}"></td>
+              <td><input name="${escapeHtml(item.id)}__reference" value="${escapeHtml(item.reference)}"></td>
+              <td><input name="${escapeHtml(item.id)}__service" value="${escapeHtml(item.service)}"></td>
+              <td><input name="${escapeHtml(item.id)}__startDate" value="${escapeHtml(item.startDate)}"></td>
+              <td><input name="${escapeHtml(item.id)}__finishDate" value="${escapeHtml(item.finishDate)}"></td>
+              <td><input name="${escapeHtml(item.id)}__startCity" value="${escapeHtml(item.startCity)}"></td>
+              <td><input name="${escapeHtml(item.id)}__finishCity" value="${escapeHtml(item.finishCity)}"></td>
+              <td><input name="${escapeHtml(item.id)}__status" value="${escapeHtml(item.status)}"></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+      <section class="panel" style="margin-top:12px">
+        <div class="form-grid">
+          <label for="quickNote">Quick Note</label>
+          <textarea class="wide-textarea" id="quickNote" name="quickNote">${escapeHtml(current.quickNote)}</textarea>
+        </div>
+      </section>
+    </form>
   `;
 }
 
 function passengersView() {
   const current = booking();
   return `
-    ${pageHeading("Passengers")}
+    ${pageHeading("Passengers", `
+      <div class="toolbar">
+        <input id="newPassengerName" type="text" placeholder="SURNAME/FIRST TITLE" aria-label="Passenger name">
+        <button class="table-button" type="button" data-action="add-passenger">Add Passenger</button>
+      </div>
+    `)}
     <table class="grid-table">
-      <thead><tr><th>No.</th><th>Passenger Name</th><th>Passenger Source</th><th>Primary</th><th>Status</th></tr></thead>
+      <thead><tr><th style="width:70px">Action</th><th>No.</th><th>Passenger Name</th><th>Passenger Source</th><th>Primary</th><th>Status</th></tr></thead>
       <tbody>
         ${current.passengers.map((name, index) => `
           <tr>
+            <td><button class="icon-button delete" type="button" title="Delete passenger" data-action="delete-passenger" data-index="${index}">X</button></td>
             <td>${index + 1}</td>
             <td>${escapeHtml(name)}</td>
             <td>${index === 0 ? "QDOHOA_SABRE_9JM1" : "JGLCY_SABRE_9JM1"}</td>
@@ -871,6 +1291,56 @@ function costingView() {
         `).join("")}
       </tbody>
     </table>
+  `;
+}
+
+function transactionView(kind) {
+  const current = booking();
+  const titles = {
+    account: "Account",
+    invoices: "Invoices",
+    receipts: "Receipts",
+    payments: "Payments",
+    orderpayments: "Order Form Payments",
+    ledgers: "Ledgers",
+    proration: "Pro-Ration",
+    pglog: "PG Transaction Log"
+  };
+  const rows = current.transactions.filter((item) => item.kind === kind);
+  return `
+    ${pageHeading(titles[kind] || titleCase(kind), `
+      <div class="form-actions">
+        <button class="form-button" type="submit" form="transactionListForm">Save Changes</button>
+      </div>
+    `)}
+    <section class="panel">
+      <form id="transactionForm" data-kind="${escapeHtml(kind)}">
+        <div class="form-grid">
+          <label for="transactionDate">Date</label><input id="transactionDate" name="date" value="${new Date().toLocaleDateString("en-GB").replaceAll("/", "-")}">
+          <label for="transactionDescription">Description</label><input id="transactionDescription" name="description" value="">
+          <label for="transactionAmount">Amount</label><input id="transactionAmount" name="amount" value="0.00">
+          <label for="transactionStatus">Status</label>
+          <select id="transactionStatus" name="status"><option>Draft</option><option>Pending</option><option>Paid</option><option>Cancelled</option></select>
+        </div>
+        <div class="record-actions"><button class="form-button" type="submit">Add ${escapeHtml(titles[kind] || "Transaction")}</button></div>
+      </form>
+    </section>
+    <form id="transactionListForm">
+      <table class="grid-table">
+        <thead><tr><th style="width:70px">Action</th><th>Date</th><th>Description</th><th style="width:100px">Amount</th><th style="width:90px">Status</th></tr></thead>
+        <tbody>
+          ${rows.map((item) => `
+            <tr>
+              <td><button class="icon-button delete" type="button" data-action="delete-transaction" data-id="${escapeHtml(item.id)}">X</button></td>
+              <td><input name="${escapeHtml(item.id)}__date" value="${escapeHtml(item.date)}"></td>
+              <td><input name="${escapeHtml(item.id)}__description" value="${escapeHtml(item.description)}"></td>
+              <td><input name="${escapeHtml(item.id)}__amount" value="${escapeHtml(item.amount)}"></td>
+              <td><input name="${escapeHtml(item.id)}__status" value="${escapeHtml(item.status)}"></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </form>
   `;
 }
 
@@ -918,6 +1388,40 @@ function wireCurrentView() {
   const form = document.getElementById("segmentForm");
   if (form) form.addEventListener("submit", saveSegmentForm);
 
+  document.querySelectorAll("[data-booking-details]").forEach((detailsForm) => {
+    detailsForm.addEventListener("submit", saveBookingDetailsForm);
+  });
+
+  const referenceForm = document.getElementById("referenceForm");
+  if (referenceForm) referenceForm.addEventListener("submit", saveReferenceForm);
+
+  const referenceListForm = document.getElementById("referenceListForm");
+  if (referenceListForm) referenceListForm.addEventListener("submit", saveReferenceListForm);
+
+  const lifecycleForm = document.getElementById("lifecycleForm");
+  if (lifecycleForm) lifecycleForm.addEventListener("submit", saveLifecycleForm);
+
+  const lifecycleListForm = document.getElementById("lifecycleListForm");
+  if (lifecycleListForm) lifecycleListForm.addEventListener("submit", saveLifecycleListForm);
+
+  const statusForm = document.getElementById("statusForm");
+  if (statusForm) statusForm.addEventListener("submit", saveStatusForm);
+
+  const quickEditForm = document.getElementById("quickEditForm");
+  if (quickEditForm) quickEditForm.addEventListener("submit", saveQuickEditForm);
+
+  const documentForm = document.getElementById("documentForm");
+  if (documentForm) documentForm.addEventListener("submit", saveDocumentForm);
+
+  const documentListForm = document.getElementById("documentListForm");
+  if (documentListForm) documentListForm.addEventListener("submit", saveDocumentListForm);
+
+  const transactionForm = document.getElementById("transactionForm");
+  if (transactionForm) transactionForm.addEventListener("submit", saveTransactionForm);
+
+  const transactionListForm = document.getElementById("transactionListForm");
+  if (transactionListForm) transactionListForm.addEventListener("submit", saveTransactionListForm);
+
   document.querySelectorAll("input[name='sortChoice']").forEach((radio) => {
     radio.addEventListener("change", () => {
       state.sortIntroChoice = radio.value;
@@ -956,23 +1460,28 @@ function handleAction(action, source) {
   if (action === "copy-segment") {
     const original = current.segments.find((item) => item.id === source.dataset.id);
     if (!original) return;
-    const copy = { ...original, id: `copy-${Date.now()}`, reference: `${original.reference} COPY` };
+    const copy = { ...original, id: `copy-${Date.now()}`, reference: original.reference ? `${original.reference} COPY` : "" };
     current.segments.splice(current.segments.indexOf(original) + 1, 0, copy);
     state.selectedSegmentId = copy.id;
     render();
+    persistData("Segment copied");
     toast("Segment copied");
   }
   if (action === "delete-segment") {
-    const item = current.segments.find((segment) => segment.id === source.dataset.id);
-    if (!item) return;
-    item.status = "XX";
+    current.segments = current.segments.filter((segment) => segment.id !== source.dataset.id);
+    if (current.segments.length === 0) {
+      current.segments.push(blankSegment("blank-1"));
+    }
+    state.selectedSegmentId = current.segments[0].id;
     render();
-    toast("Segment status changed to XX");
+    persistData("Segment deleted");
+    toast("Segment deleted");
   }
   if (action === "add-segment") {
-    const newSegment = seg(`new-${Date.now()}`, "TUR", "", "All", current.depDate, "09:00", current.depDate, "17:00", "TYO", "TYO", "HK", "New Tour Segment");
+    const newSegment = blankSegment(`new-${Date.now()}`, labelToSegmentType(state.segmentType));
     current.segments.unshift(newSegment);
     state.selectedSegmentId = newSegment.id;
+    persistData("Segment added");
     setView("edit");
   }
   if (action === "undo-edit") {
@@ -981,6 +1490,7 @@ function handleAction(action, source) {
   if (action === "automatic-sort") {
     current.segments.sort((a, b) => dateKey(a.startDate, a.startTime).localeCompare(dateKey(b.startDate, b.startTime)));
     render();
+    persistData("Sort saved");
     toast("Segments sorted by start date");
   }
   if (action === "extract-import") {
@@ -1003,11 +1513,12 @@ function handleAction(action, source) {
     current.segments.push(item);
     state.selectedSegmentId = item.id;
     setView("edit");
+    persistData("Imported segment saved");
     toast("Imported confirmation added as a segment");
   }
   if (action === "open-booking") {
     state.bookingId = source.dataset.id;
-    state.selectedSegmentId = booking().segments[0].id;
+    state.selectedSegmentId = booking().segments[0]?.id || "";
     setView("itinerary");
     toast(`Opened booking ${state.bookingId}`);
   }
@@ -1021,16 +1532,82 @@ function handleAction(action, source) {
     toast("Mail source refreshed");
   }
   if (action === "copy-booking") {
+    const copy = JSON.parse(JSON.stringify(current));
+    copy.id = String(Date.now()).slice(-6);
+    copy.clientName = `${current.clientName} Copy`;
+    copy.client = toTramadaClientCode(copy.clientName);
+    copy.segments = copy.segments.map((item, index) => ({ ...item, id: `copy-${Date.now()}-${index}` }));
+    bookings.unshift(ensureBookingShape(copy));
+    state.bookingId = copy.id;
+    state.selectedSegmentId = copy.segments[0]?.id || "";
+    setView("summary");
+    persistData("Booking copied");
     toast("Booking copied to local test data");
   }
   if (action === "cancel-booking") {
+    current.status = "Cancelled";
+    render();
+    persistData("Booking cancelled");
     toast("Booking cancel action captured");
   }
   if (action === "diary-note") {
+    current.lifecycle.unshift({
+      id: `life-${Date.now()}`,
+      date: new Date().toLocaleDateString("en-GB").replaceAll("/", "-"),
+      type: "Diary",
+      note: "Diary note added from booking card"
+    });
+    persistData("Diary note saved");
     toast("Diary note added");
   }
   if (action === "run-booking-search") {
     toast("Search completed");
+  }
+  if (action === "add-passenger") {
+    const input = document.getElementById("newPassengerName");
+    const name = input?.value?.trim();
+    if (!name) {
+      toast("Enter a passenger name");
+      return;
+    }
+    current.passengers.push(name.toUpperCase());
+    current.pax = current.passengers.length;
+    input.value = "";
+    render();
+    persistData("Passenger added");
+    toast("Passenger added");
+  }
+  if (action === "delete-passenger") {
+    const index = Number(source.dataset.index);
+    current.passengers.splice(index, 1);
+    current.pax = current.passengers.length;
+    render();
+    persistData("Passenger deleted");
+    toast("Passenger deleted");
+  }
+  if (action === "delete-reference") {
+    current.references = current.references.filter((item) => item.id !== source.dataset.id);
+    render();
+    persistData("Reference deleted");
+    toast("Reference deleted");
+  }
+  if (action === "delete-lifecycle") {
+    current.lifecycle = current.lifecycle.filter((item) => item.id !== source.dataset.id);
+    render();
+    persistData("Life cycle entry deleted");
+    toast("Life cycle entry deleted");
+  }
+  if (action === "delete-document") {
+    current.documents = current.documents.filter((item) => item.id !== source.dataset.id);
+    render();
+    persistData("Document deleted");
+    toast("Document record deleted");
+  }
+  if (action === "delete-transaction") {
+    current.transactions = current.transactions.filter((item) => item.id !== source.dataset.id);
+    render();
+    persistData("Transaction deleted");
+    toast("Transaction deleted");
   }
 }
 
@@ -1047,6 +1624,7 @@ function saveSegmentForm(event) {
   item.country = data.get("country");
   item.phone = data.get("phone");
   item.fax = data.get("fax");
+  item.reference = data.get("reference");
   item.service = data.get("service");
   item.startCity = data.get("startCity");
   item.startDate = data.get("startDate");
@@ -1061,7 +1639,201 @@ function saveSegmentForm(event) {
   item.markup = data.get("markup") || item.markup;
   item.tax = data.get("tax") || item.tax;
   setView("itinerary");
+  persistData("Segment saved");
   toast("Segment saved");
+}
+
+function saveBookingDetailsForm(event) {
+  event.preventDefault();
+  const data = new FormData(event.currentTarget);
+  const current = booking();
+  [
+    "client",
+    "clientName",
+    "debtor",
+    "itinerary",
+    "title",
+    "bookingReference",
+    "bookDate",
+    "depDate",
+    "consultant",
+    "contactEmail",
+    "supplierConsultant",
+    "status",
+    "profileNotes"
+  ].forEach((field) => {
+    if (data.has(field)) current[field] = data.get(field);
+  });
+  current.pax = current.passengers.length;
+  render();
+  persistData("Booking saved");
+  toast("Booking details saved");
+}
+
+function saveReferenceForm(event) {
+  event.preventDefault();
+  const data = new FormData(event.currentTarget);
+  const value = String(data.get("value") || "").trim();
+  if (!value) {
+    toast("Enter a reference");
+    return;
+  }
+  booking().references.unshift({
+    id: `ref-${Date.now()}`,
+    type: data.get("type"),
+    value,
+    notes: data.get("notes")
+  });
+  event.currentTarget.reset();
+  render();
+  persistData("Reference saved");
+  toast("Reference added");
+}
+
+function saveReferenceListForm(event) {
+  event.preventDefault();
+  const data = new FormData(event.currentTarget);
+  booking().references.forEach((item) => {
+    ["type", "value", "notes"].forEach((field) => {
+      const key = `${item.id}__${field}`;
+      if (data.has(key)) item[field] = data.get(key);
+    });
+  });
+  render();
+  persistData("References saved");
+  toast("References saved");
+}
+
+function saveLifecycleForm(event) {
+  event.preventDefault();
+  const data = new FormData(event.currentTarget);
+  const note = String(data.get("note") || "").trim();
+  if (!note) {
+    toast("Enter lifecycle details");
+    return;
+  }
+  booking().lifecycle.unshift({
+    id: `life-${Date.now()}`,
+    date: data.get("date"),
+    type: data.get("type"),
+    note
+  });
+  event.currentTarget.reset();
+  render();
+  persistData("Life cycle saved");
+  toast("Life cycle entry added");
+}
+
+function saveLifecycleListForm(event) {
+  event.preventDefault();
+  const data = new FormData(event.currentTarget);
+  booking().lifecycle.forEach((item) => {
+    ["date", "type", "note"].forEach((field) => {
+      const key = `${item.id}__${field}`;
+      if (data.has(key)) item[field] = data.get(key);
+    });
+  });
+  render();
+  persistData("Life cycle saved");
+  toast("Life cycle changes saved");
+}
+
+function saveStatusForm(event) {
+  event.preventDefault();
+  const data = new FormData(event.currentTarget);
+  const current = booking();
+  current.status = data.get("status");
+  current.priority = data.get("priority");
+  current.statusNote = data.get("statusNote");
+  render();
+  persistData("Status saved");
+  toast("Status saved");
+}
+
+function saveQuickEditForm(event) {
+  event.preventDefault();
+  const data = new FormData(event.currentTarget);
+  const current = booking();
+  current.segments.forEach((item) => {
+    ["type", "reference", "service", "startDate", "finishDate", "startCity", "finishCity", "status"].forEach((field) => {
+      const key = `${item.id}__${field}`;
+      if (data.has(key)) item[field] = data.get(key);
+    });
+  });
+  current.quickNote = data.get("quickNote");
+  render();
+  persistData("Quick edit saved");
+  toast("Quick edit saved");
+}
+
+function saveDocumentForm(event) {
+  event.preventDefault();
+  const data = new FormData(event.currentTarget);
+  const title = String(data.get("title") || "").trim();
+  if (!title) {
+    toast("Enter a document title");
+    return;
+  }
+  booking().documents.unshift({
+    id: `doc-${Date.now()}`,
+    type: data.get("type"),
+    title,
+    note: data.get("note")
+  });
+  event.currentTarget.reset();
+  render();
+  persistData("Document saved");
+  toast("Document record added");
+}
+
+function saveDocumentListForm(event) {
+  event.preventDefault();
+  const data = new FormData(event.currentTarget);
+  booking().documents.forEach((item) => {
+    ["type", "title", "note"].forEach((field) => {
+      const key = `${item.id}__${field}`;
+      if (data.has(key)) item[field] = data.get(key);
+    });
+  });
+  render();
+  persistData("Documents saved");
+  toast("Document changes saved");
+}
+
+function saveTransactionForm(event) {
+  event.preventDefault();
+  const data = new FormData(event.currentTarget);
+  const description = String(data.get("description") || "").trim();
+  if (!description) {
+    toast("Enter a description");
+    return;
+  }
+  booking().transactions.unshift({
+    id: `txn-${Date.now()}`,
+    kind: event.currentTarget.dataset.kind,
+    date: data.get("date"),
+    description,
+    amount: data.get("amount"),
+    status: data.get("status")
+  });
+  event.currentTarget.reset();
+  render();
+  persistData("Transaction saved");
+  toast("Transaction added");
+}
+
+function saveTransactionListForm(event) {
+  event.preventDefault();
+  const data = new FormData(event.currentTarget);
+  booking().transactions.forEach((item) => {
+    ["date", "description", "amount", "status"].forEach((field) => {
+      const key = `${item.id}__${field}`;
+      if (data.has(key)) item[field] = data.get(key);
+    });
+  });
+  render();
+  persistData("Transactions saved");
+  toast("Transaction changes saved");
 }
 
 function wireDragSort() {
@@ -1105,6 +1877,14 @@ function dateKey(date, time) {
   return `${year || "0000"}-${month || "00"}-${day || "00"} ${time || "00:00"}`;
 }
 
+function readableDate(date) {
+  const [day, month, year] = String(date || "").split("-");
+  if (!day || !month || !year) return "";
+  const parsed = new Date(`${year}-${month}-${day}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return date;
+  return parsed.toLocaleDateString("en-AU", { weekday: "long", day: "2-digit", month: "short", year: "numeric" });
+}
+
 function toast(message) {
   const node = document.getElementById("statusToast");
   node.textContent = message;
@@ -1113,13 +1893,126 @@ function toast(message) {
   toast.timer = window.setTimeout(() => node.classList.remove("show"), 1800);
 }
 
+function importItinerary(itinerary) {
+  const current = booking();
+  const importedPassengers = Array.isArray(itinerary?.passengers)
+    ? itinerary.passengers.map((name) => String(name || "").trim()).filter(Boolean)
+    : [];
+  const importedSegments = Array.isArray(itinerary?.segments) ? itinerary.segments : [];
+
+  current.passengers = importedPassengers;
+  current.pax = importedPassengers.length;
+  current.clientName = itinerary?.client || importedPassengers[0] || "Imported Client";
+  current.client = toTramadaClientCode(current.clientName);
+  current.bookingReference = itinerary?.bookingReference || current.bookingReference || "";
+  current.title = itinerary?.bookingTitle || current.title || "Imported Booking";
+  current.itinerary = current.title;
+  current.consultant = itinerary?.consultant || current.consultant || "";
+  current.depDate = importedSegments[0]?.startDate || current.depDate || "";
+  current.bookDate = current.bookDate || new Date().toLocaleDateString("en-GB").replaceAll("/", "-");
+  current.segments = importedSegments.map((item, index) => importedSegment(item, index, importedPassengers.length));
+  ensureBookingShape(current);
+  state.selectedSegmentId = current.segments[0]?.id || "";
+  state.view = "itinerary";
+  render();
+  persistData("Imported booking saved");
+  toast(`Imported ${current.segments.length} segment(s) and ${current.passengers.length} passenger(s)`);
+}
+
+function importedSegment(item, index, passengerCount) {
+  const type = sanitizeSegmentType(item?.type);
+  return seg(
+    `import-${Date.now()}-${index}`,
+    type,
+    item?.reference || "",
+    passengerLabel(type, item?.noPassengers, passengerCount),
+    item?.startDate || "",
+    item?.startTime || "",
+    item?.finishDate || item?.startDate || "",
+    item?.finishTime || "",
+    uppercaseCode(item?.startCity),
+    uppercaseCode(item?.finishCity),
+    sanitizeStatus(item?.status),
+    item?.service || "",
+    type === "HTL" ? "hotel" : ""
+  );
+}
+
+function passengerLabel(type, segmentPassengerCount, bookingPassengerCount) {
+  if (type === "FLT") return "Specific";
+  if (Number(segmentPassengerCount) === 1 && bookingPassengerCount > 1) return "Specific";
+  return "All";
+}
+
+function sanitizeSegmentType(type) {
+  const value = String(type || "COM").toUpperCase();
+  return ["FLT", "HTL", "TSF", "TUR", "TRN", "COM", "CRC"].includes(value) ? value : "COM";
+}
+
+function labelToSegmentType(label) {
+  const value = String(label || "").toLowerCase();
+  if (value === "flight") return "FLT";
+  if (value === "hotel") return "HTL";
+  if (value === "transfer") return "TSF";
+  if (value === "tour") return "TUR";
+  if (value === "train") return "TRN";
+  if (value === "component") return "COM";
+  return "";
+}
+
+function sanitizeStatus(status) {
+  const value = String(status || "HK").toUpperCase();
+  return ["HK", "PN", "XX"].includes(value) ? value : "HK";
+}
+
+function uppercaseCode(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function toTramadaClientCode(name) {
+  const parts = String(name || "Imported Client").trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return `${parts.at(-1)}/${parts.slice(0, -1).join(" ")}`.toUpperCase();
+  return String(name || "Imported Client").toUpperCase();
+}
+
+window.__tramadaReplica = {
+  importItinerary,
+  resetBooking() {
+    Object.assign(booking(), {
+      client: "CLIENT/NEW",
+      clientName: "Imported Client",
+      passengers: [],
+      pax: 0,
+      itinerary: "Imported itinerary",
+      depDate: "",
+      bookingReference: "",
+      title: "Imported Booking",
+      status: "Booked",
+      priority: "Normal",
+      statusNote: "",
+      profileNotes: "",
+      quickNote: "",
+      references: [],
+      lifecycle: [],
+      documents: [],
+      transactions: [],
+      segments: [blankSegment("blank-1")]
+    });
+    state.selectedSegmentId = "blank-1";
+    state.view = "itinerary";
+    render();
+    persistData("Booking reset");
+    toast("Booking reset");
+  }
+};
+
 function applyInitialRoute() {
   const searchParams = new URLSearchParams(window.location.search);
   const requestedView = searchParams.get("view") || window.location.hash.replace("#", "");
   const requestedBooking = searchParams.get("booking");
   if (bookings.some((item) => item.id === requestedBooking)) {
     state.bookingId = requestedBooking;
-    state.selectedSegmentId = booking().segments[0].id;
+    state.selectedSegmentId = booking().segments[0]?.id || "";
   }
   if (routeViews.has(requestedView)) {
     state.view = requestedView;
@@ -1135,5 +2028,12 @@ window.addEventListener("hashchange", () => {
 });
 
 document.getElementById("logoutButton").addEventListener("click", () => toast("Logout captured in test replica"));
-applyInitialRoute();
-render();
+
+async function boot() {
+  await loadPersistedState();
+  applyInitialRoute();
+  persistence.loaded = true;
+  render();
+}
+
+boot();

@@ -70,6 +70,12 @@ button {
   white-space: nowrap;
 }
 
+.save-status {
+  margin-left: auto;
+  color: #f4fbdb;
+  font-size: 11px;
+}
+
 .link-button {
   border: 0;
   background: transparent;
@@ -341,6 +347,11 @@ input[readonly],
   color: white;
   text-align: left;
   font-weight: bold;
+}
+
+.grid-table input,
+.grid-table select {
+  width: 100%;
 }
 
 .grid-table tr:nth-child(even) td {
@@ -617,6 +628,30 @@ legend {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 9px;
   margin: 0 0 14px;
+}
+
+.metric {
+  border: 2px solid #a8bac7;
+  background: #f4f9fc;
+  padding: 8px;
+}
+
+.metric strong {
+  display: block;
+  font-size: 20px;
+  color: #0f4f8d;
+}
+
+.record-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.wide-textarea {
+  min-height: 72px;
+  resize: vertical;
 }
 
 .metric {

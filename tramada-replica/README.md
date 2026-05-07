@@ -2,22 +2,25 @@
 
 Offline Tramada-style UI built from the local walkthrough video/screenshots.
 
-Open:
+Run locally with server-backed saving:
 
-```text
-/Users/caesar/Desktop/VM Shared/Mosman Travel/tramada-replica/index.html
+```sh
+npm start
 ```
+
+Then open `http://127.0.0.1:4173/`.
 
 Useful routes:
 
 ```text
-index.html#itinerary
-index.html#edit
-index.html#sort
-index.html#sortManual
-index.html#content
-index.html#documents
-index.html#bookings
+/#summary
+/#itinerary
+/#edit
+/#sort
+/#sortManual
+/#content
+/#documents
+/#bookings
 ```
 
 The replica includes:
@@ -27,4 +30,5 @@ The replica includes:
 - Manual sort screen with drag-and-drop segment ordering.
 - Document preview for the generated itinerary.
 - Content import screen with Outlook-style supplier confirmations and extracted fields for adding a segment.
-- Two sample bookings based on the Japan and Europe workflows visible in the footage.
+- Editable left-menu areas for summary, profile, references, passengers, life cycle, status, quick edit, documents, and transaction-style account tabs.
+- Local server persistence through `GET /api/state` and `PUT /api/state`, saved to `data/state.json` on your machine. Browser storage is used as a fallback if the site is opened without the server.
