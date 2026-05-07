@@ -1,0 +1,9 @@
+{
+  "name": "tramada-vercel-root",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "vercel-build": "node scripts/build-vercel.js",
+    "build": "node scripts/build-vercel.js"
+  }
+}
