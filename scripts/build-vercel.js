@@ -9,7 +9,7 @@ async function main() {
   await rm(output, { recursive: true, force: true });
   await mkdir(output, { recursive: true });
 
-  for (const file of ["index.html", "styles.css", "script.js", "README.md"]) {
+  for (const file of ["index.html", "styles.css", "airports.js", "script.js", "README.md"]) {
     await cp(join(source, file), join(output, file));
   }
 }

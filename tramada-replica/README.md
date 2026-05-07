@@ -31,4 +31,5 @@ The replica includes:
 - Document preview for the generated itinerary.
 - Content import screen with Outlook-style supplier confirmations and extracted fields for adding a segment.
 - Editable left-menu areas for summary, profile, references, passengers, life cycle, status, quick edit, documents, and transaction-style account tabs.
+- Global airport/city lookup for departure and finish city fields, generated from OurAirports operating large, medium, small, and seaplane airport records.
 - Local server persistence through `GET /api/state` and `PUT /api/state`, saved to `data/state.json` on your machine. Browser storage is used as a fallback if the site is opened without the server.

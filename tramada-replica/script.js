@@ -378,6 +378,112 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+let airportSearchRows = null;
+let airportClickWired = false;
+
+function airportInput(id, name, value, label, compact = false) {
+  return `
+    <div class="airport-field ${compact ? "compact" : ""}">
+      <input id="${escapeHtml(id)}" name="${escapeHtml(name)}" value="${escapeHtml(value)}" autocomplete="off" data-airport-input aria-label="${escapeHtml(label)}">
+      <div class="airport-results" data-airport-results role="listbox"></div>
+    </div>
+  `;
+}
+
+function airports() {
+  if (!airportSearchRows) {
+    airportSearchRows = (window.TRAMADA_AIRPORTS || []).map(([code, city, name, country, codes, type, scheduled]) => {
+      const search = `${code} ${codes} ${city} ${name} ${country}`.toLowerCase();
+      return { code, city, name, country, codes, type, scheduled, search };
+    });
+  }
+  return airportSearchRows;
+}
+
+function findAirports(query, limit = 12) {
+  const term = String(query || "").trim().toLowerCase();
+  if (!term) return [];
+  const upper = term.toUpperCase();
+  return airports()
+    .map((airport) => {
+      const codes = String(airport.codes || "").split(/\s+/);
+      let score = -1;
+      if (airport.code === upper) score = 0;
+      else if (codes.includes(upper)) score = 1;
+      else if (airport.code.startsWith(upper)) score = 2;
+      else if (String(airport.city || "").toLowerCase().startsWith(term)) score = 3;
+      else if (String(airport.name || "").toLowerCase().startsWith(term)) score = 4;
+      else if (airport.search.includes(term)) score = 5;
+      if (score < 0) return null;
+      const scheduledBonus = airport.scheduled ? 0 : 1;
+      const typeScore = { large: 0, medium: 1, small: 2, seaplane: 3 }[airport.type] ?? 4;
+      return { airport, score, scheduledBonus, typeScore };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.score - b.score || a.scheduledBonus - b.scheduledBonus || a.typeScore - b.typeScore || a.airport.code.localeCompare(b.airport.code))
+    .slice(0, limit)
+    .map((match) => match.airport);
+}
+
+function airportOptionMarkup(airport) {
+  const place = [airport.city, airport.country].filter(Boolean).join(", ");
+  const meta = [airport.name, airport.type, airport.scheduled ? "scheduled" : "private/general"].filter(Boolean).join(" · ");
+  return `
+    <button type="button" class="airport-option" data-airport-value="${escapeHtml(airport.code)}" title="${escapeHtml(meta)}">
+      <strong>${escapeHtml(airport.code)}</strong>
+      <span>${escapeHtml(place || airport.name)}</span>
+      <small>${escapeHtml(meta)}</small>
+    </button>
+  `;
+}
+
+function wireAirportFields() {
+  if (!airportClickWired) {
+    document.addEventListener("click", (event) => {
+      if (!event.target.closest(".airport-field")) closeAirportResults();
+    });
+    airportClickWired = true;
+  }
+
+  document.querySelectorAll("[data-airport-input]").forEach((input) => {
+    const update = () => renderAirportResults(input);
+    input.addEventListener("input", update);
+    input.addEventListener("focus", update);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closeAirportResults(input);
+    });
+  });
+}
+
+function renderAirportResults(input) {
+  const panel = input.parentElement.querySelector("[data-airport-results]");
+  const matches = findAirports(input.value);
+  if (!panel || !matches.length) {
+    closeAirportResults(input);
+    return;
+  }
+  panel.innerHTML = matches.map(airportOptionMarkup).join("");
+  panel.classList.add("show");
+  panel.querySelectorAll(".airport-option").forEach((button) => {
+    button.addEventListener("mousedown", (event) => event.preventDefault());
+    button.addEventListener("click", () => {
+      input.value = button.dataset.airportValue;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      closeAirportResults(input);
+    });
+  });
+}
+
+function closeAirportResults(input) {
+  const panels = input
+    ? [input.parentElement.querySelector("[data-airport-results]")]
+    : Array.from(document.querySelectorAll("[data-airport-results]"));
+  panels.filter(Boolean).forEach((panel) => {
+    panel.classList.remove("show");
+    panel.innerHTML = "";
+  });
+}
+
 function stateSnapshot() {
   return {
     savedAt: new Date().toISOString(),
@@ -781,13 +887,13 @@ function serviceFieldset(item) {
         <label>Includes<br>International<br>Travel</label>
         <label><input type="checkbox" name="includesInternational" ${item.type === "FLT" ? "checked" : ""}> Includes</label>
         <label for="startCity">Departure City</label>
-        <input id="startCity" name="startCity" value="${escapeHtml(item.startCity)}">
+        ${airportInput("startCity", "startCity", item.startCity, "Departure City")}
         <label for="startDate">Start Date</label>
         <input id="startDate" name="startDate" value="${escapeHtml(item.startDate)}">
         <label for="startTime">Start Time</label>
         <input id="startTime" name="startTime" value="${escapeHtml(item.startTime)}">
         <label for="finishCity">Finish City</label>
-        <input id="finishCity" name="finishCity" value="${escapeHtml(item.finishCity)}">
+        ${airportInput("finishCity", "finishCity", item.finishCity, "Finish City")}
         <label for="finishDate">Finish Date</label>
         <input id="finishDate" name="finishDate" value="${escapeHtml(item.finishDate)}">
         <label for="finishTime">Finish Time</label>
@@ -1219,8 +1325,8 @@ function quickEditView() {
               <td><input name="${escapeHtml(item.id)}__service" value="${escapeHtml(item.service)}"></td>
               <td><input name="${escapeHtml(item.id)}__startDate" value="${escapeHtml(item.startDate)}"></td>
               <td><input name="${escapeHtml(item.id)}__finishDate" value="${escapeHtml(item.finishDate)}"></td>
-              <td><input name="${escapeHtml(item.id)}__startCity" value="${escapeHtml(item.startCity)}"></td>
-              <td><input name="${escapeHtml(item.id)}__finishCity" value="${escapeHtml(item.finishCity)}"></td>
+              <td>${airportInput(`${item.id}__startCity`, `${item.id}__startCity`, item.startCity, "Departure City", true)}</td>
+              <td>${airportInput(`${item.id}__finishCity`, `${item.id}__finishCity`, item.finishCity, "Finish City", true)}</td>
               <td><input name="${escapeHtml(item.id)}__status" value="${escapeHtml(item.status)}"></td>
             </tr>
           `).join("")}
@@ -1435,6 +1541,7 @@ function wireCurrentView() {
     });
   });
 
+  wireAirportFields();
   wireDragSort();
 }
 
@@ -1626,10 +1733,10 @@ function saveSegmentForm(event) {
   item.fax = data.get("fax");
   item.reference = data.get("reference");
   item.service = data.get("service");
-  item.startCity = data.get("startCity");
+  item.startCity = uppercaseCode(data.get("startCity"));
   item.startDate = data.get("startDate");
   item.startTime = data.get("startTime");
-  item.finishCity = data.get("finishCity");
+  item.finishCity = uppercaseCode(data.get("finishCity"));
   item.finishDate = data.get("finishDate");
   item.finishTime = data.get("finishTime");
   item.status = data.get("status");
@@ -1696,7 +1803,7 @@ function saveReferenceListForm(event) {
   booking().references.forEach((item) => {
     ["type", "value", "notes"].forEach((field) => {
       const key = `${item.id}__${field}`;
-      if (data.has(key)) item[field] = data.get(key);
+      if (data.has(key)) item[field] = field === "startCity" || field === "finishCity" ? uppercaseCode(data.get(key)) : data.get(key);
     });
   });
   render();

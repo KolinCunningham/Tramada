@@ -24,6 +24,7 @@ https://tramada-replica.vercel.app
 - Document preview for generated itinerary
 - Content import screen with extracted fields for adding a segment
 - Editable summary, profile, references, passengers, lifecycle, status, quick edit, document, and transaction tabs
+- Global airport/city lookup for departure and finish city fields, generated from OurAirports operating airport records
 - Local Node server persistence for development, with browser storage fallback on static Vercel deployments
 
 ## Vercel

@@ -654,6 +654,64 @@ legend {
   resize: vertical;
 }
 
+.airport-field {
+  position: relative;
+}
+
+.airport-field input {
+  width: 100%;
+}
+
+.airport-field.compact {
+  min-width: 100%;
+}
+
+.airport-results {
+  display: none;
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  max-height: 230px;
+  overflow: auto;
+  border: 2px solid #496d86;
+  background: #f8fbfd;
+  box-shadow: 0 5px 12px rgba(20, 45, 65, 0.22);
+}
+
+.airport-results.show {
+  display: block;
+}
+
+.airport-option {
+  display: grid;
+  grid-template-columns: 58px 1fr;
+  gap: 2px 6px;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid #c7d4dd;
+  background: #f8fbfd;
+  color: #1c2a34;
+  padding: 5px 6px;
+  text-align: left;
+}
+
+.airport-option:hover,
+.airport-option:focus {
+  background: #d9edf8;
+  outline: 0;
+}
+
+.airport-option strong {
+  grid-row: span 2;
+  color: #0d5aa6;
+}
+
+.airport-option small {
+  color: #526a7c;
+}
+
 .metric {
   border: 1px solid #9fb4c2;
   background: #edf5fa;
