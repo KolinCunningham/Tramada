@@ -27,6 +27,7 @@ The replica includes:
 
 - Booking itinerary table with old Tramada-style sidebar, header, filters, action buttons, and status columns.
 - Add/Edit segment form with supplier info, creditor info, service info, supplier rates, and client due fields.
+- Passenger name entry on the segment edit screen, saving the segment passenger and adding new names to the booking passenger list.
 - Segment date fields use calendar inputs and save back to Australian `DD-MM-YYYY` format; start and finish times require 24-hour `HH:MM` values.
 - Manual sort screen with drag-and-drop segment ordering.
 - Document preview for the generated itinerary.

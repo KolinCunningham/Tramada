@@ -369,6 +369,10 @@ input[type="time"]:invalid {
   min-width: 98px;
 }
 
+.passenger-entry {
+  margin: 0 0 8px;
+}
+
 .grid-table tr:nth-child(even) td {
   background: #eef6fb;
 }

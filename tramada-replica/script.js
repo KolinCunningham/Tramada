@@ -398,6 +398,22 @@ function timeInput(id, name, value, label, required = false) {
   return `<input id="${escapeHtml(id)}" name="${escapeHtml(name)}" type="time" step="60" value="${escapeHtml(normaliseTime(value))}" pattern="[0-2][0-9]:[0-5][0-9]" ${required ? "required" : ""} aria-label="${escapeHtml(label)}">`;
 }
 
+function passengerInput(current, item) {
+  const options = ["All", "Specific", ...current.passengers]
+    .filter((value, index, values) => value && values.indexOf(value) === index)
+    .map((value) => `<option value="${escapeHtml(value)}"></option>`)
+    .join("");
+
+  return `
+    <div class="form-grid passenger-entry">
+      <label for="segmentPassengerName">Passenger Name</label>
+      <input id="segmentPassengerName" name="passengers" list="passengerNameOptions" value="${escapeHtml(item.passengers)}" placeholder="SURNAME/FIRST TITLE or All">
+      <datalist id="passengerNameOptions">${options}</datalist>
+    </div>
+    <p class="micro-note">Enter the passenger for this segment. New names are added to the booking passenger list when saved.</p>
+  `;
+}
+
 function toDateInputValue(value) {
   const text = String(value || "").trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
@@ -433,6 +449,22 @@ function validateSegmentTimes(startTime, finishTime) {
     return false;
   }
   return true;
+}
+
+function normalisePassengerName(value) {
+  const name = String(value || "").trim();
+  if (!name) return "";
+  if (name.toLowerCase() === "all") return "All";
+  if (name.toLowerCase() === "specific") return "Specific";
+  return name.toUpperCase();
+}
+
+function ensureBookingPassenger(current, name) {
+  if (!name || name === "All" || name === "Specific") return;
+  if (!current.passengers.some((passenger) => passenger.toUpperCase() === name.toUpperCase())) {
+    current.passengers.push(name);
+  }
+  current.pax = current.passengers.length;
 }
 
 function airports() {
@@ -844,11 +876,13 @@ function editView() {
         <div>
           <fieldset>
             <legend>Passengers</legend>
-            <div class="toolbar"><button class="small-button" type="button" data-action="select-passengers">Select</button></div>
+            ${passengerInput(current, item)}
             <table class="grid-table">
               <thead><tr><th>Passenger Source</th><th>Passenger Name</th></tr></thead>
               <tbody>
-                ${current.passengers.map((name, index) => `<tr><td>${index === 0 ? "QDOHOA_SABRE_9JM1" : "JGLCY_SABRE_9JM1"}</td><td>${escapeHtml(name)}</td></tr>`).join("")}
+                ${current.passengers.length
+                  ? current.passengers.map((name, index) => `<tr><td>${index === 0 ? "QDOHOA_SABRE_9JM1" : "JGLCY_SABRE_9JM1"}</td><td>${escapeHtml(name)}</td></tr>`).join("")
+                  : `<tr><td colspan="2">No passengers saved yet.</td></tr>`}
               </tbody>
             </table>
           </fieldset>
@@ -1780,6 +1814,8 @@ function saveSegmentForm(event) {
   item.fax = data.get("fax");
   item.reference = data.get("reference");
   item.service = data.get("service");
+  item.passengers = normalisePassengerName(data.get("passengers"));
+  ensureBookingPassenger(booking(), item.passengers);
   const startTime = normaliseTime(data.get("startTime"));
   const finishTime = normaliseTime(data.get("finishTime"));
   if (!validateSegmentTimes(startTime, finishTime)) return;
