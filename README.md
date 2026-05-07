@@ -20,6 +20,7 @@ https://tramada-replica.vercel.app
 
 - Booking itinerary table with old Tramada-style sidebar, header, filters, action buttons, and status columns
 - Add/Edit segment form with supplier info, creditor info, service info, supplier rates, and client due fields
+- Calendar date inputs that save back to Australian `DD-MM-YYYY` format, plus required 24-hour start/finish times
 - Manual sort screen with drag-and-drop segment ordering
 - Document preview for generated itinerary
 - Content import screen with extracted fields for adding a segment

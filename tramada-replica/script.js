@@ -390,6 +390,51 @@ function airportInput(id, name, value, label, compact = false) {
   `;
 }
 
+function dateInput(id, name, value, label, compact = false) {
+  return `<input class="${compact ? "compact-date" : ""}" id="${escapeHtml(id)}" name="${escapeHtml(name)}" type="date" value="${escapeHtml(toDateInputValue(value))}" aria-label="${escapeHtml(label)}">`;
+}
+
+function timeInput(id, name, value, label, required = false) {
+  return `<input id="${escapeHtml(id)}" name="${escapeHtml(name)}" type="time" step="60" value="${escapeHtml(normaliseTime(value))}" pattern="[0-2][0-9]:[0-5][0-9]" ${required ? "required" : ""} aria-label="${escapeHtml(label)}">`;
+}
+
+function toDateInputValue(value) {
+  const text = String(value || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const match = text.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (!match) return "";
+  const [, day, month, year] = match;
+  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+}
+
+function fromDateInputValue(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return text.replaceAll("/", "-");
+  const [, year, month, day] = match;
+  return `${day}-${month}-${year}`;
+}
+
+function normaliseTime(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const match = text.match(/^([01]?\d|2[0-3])(?::?([0-5]\d))$/);
+  if (!match) return text;
+  return `${match[1].padStart(2, "0")}:${match[2] || "00"}`;
+}
+
+function isValidTwentyFourHourTime(value) {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value || "").trim());
+}
+
+function validateSegmentTimes(startTime, finishTime) {
+  if (!isValidTwentyFourHourTime(startTime) || !isValidTwentyFourHourTime(finishTime)) {
+    toast("Use 24 hour times for start and finish, e.g. 09:30 or 17:45");
+    return false;
+  }
+  return true;
+}
+
 function airports() {
   if (!airportSearchRows) {
     airportSearchRows = (window.TRAMADA_AIRPORTS || []).map(([code, city, name, country, codes, type, scheduled]) => {
@@ -889,15 +934,15 @@ function serviceFieldset(item) {
         <label for="startCity">Departure City</label>
         ${airportInput("startCity", "startCity", item.startCity, "Departure City")}
         <label for="startDate">Start Date</label>
-        <input id="startDate" name="startDate" value="${escapeHtml(item.startDate)}">
+        ${dateInput("startDate", "startDate", item.startDate, "Start Date")}
         <label for="startTime">Start Time</label>
-        <input id="startTime" name="startTime" value="${escapeHtml(item.startTime)}">
+        ${timeInput("startTime", "startTime", item.startTime, "Start Time", true)}
         <label for="finishCity">Finish City</label>
         ${airportInput("finishCity", "finishCity", item.finishCity, "Finish City")}
         <label for="finishDate">Finish Date</label>
-        <input id="finishDate" name="finishDate" value="${escapeHtml(item.finishDate)}">
+        ${dateInput("finishDate", "finishDate", item.finishDate, "Finish Date")}
         <label for="finishTime">Finish Time</label>
-        <input id="finishTime" name="finishTime" value="${escapeHtml(item.finishTime)}">
+        ${timeInput("finishTime", "finishTime", item.finishTime, "Finish Time", true)}
         <label for="status">Status</label>
         <select id="status" name="status"><option>HK</option><option>PN</option><option>XX</option></select>
       </div>
@@ -1316,15 +1361,17 @@ function quickEditView() {
     `)}
     <form id="quickEditForm">
       <table class="grid-table">
-        <thead><tr><th style="width:56px">Type</th><th>Reference</th><th>Free Text</th><th style="width:84px">Start</th><th style="width:84px">Finish</th><th style="width:58px">From</th><th style="width:58px">To</th><th style="width:54px">Status</th></tr></thead>
+        <thead><tr><th style="width:56px">Type</th><th>Reference</th><th>Free Text</th><th style="width:105px">Start Date</th><th style="width:76px">Start Time</th><th style="width:105px">Finish Date</th><th style="width:76px">Finish Time</th><th style="width:70px">From</th><th style="width:70px">To</th><th style="width:54px">Status</th></tr></thead>
         <tbody>
           ${current.segments.map((item) => `
             <tr>
               <td><input name="${escapeHtml(item.id)}__type" value="${escapeHtml(item.type)}"></td>
               <td><input name="${escapeHtml(item.id)}__reference" value="${escapeHtml(item.reference)}"></td>
               <td><input name="${escapeHtml(item.id)}__service" value="${escapeHtml(item.service)}"></td>
-              <td><input name="${escapeHtml(item.id)}__startDate" value="${escapeHtml(item.startDate)}"></td>
-              <td><input name="${escapeHtml(item.id)}__finishDate" value="${escapeHtml(item.finishDate)}"></td>
+              <td>${dateInput(`${item.id}__startDate`, `${item.id}__startDate`, item.startDate, "Start Date", true)}</td>
+              <td>${timeInput(`${item.id}__startTime`, `${item.id}__startTime`, item.startTime, "Start Time")}</td>
+              <td>${dateInput(`${item.id}__finishDate`, `${item.id}__finishDate`, item.finishDate, "Finish Date", true)}</td>
+              <td>${timeInput(`${item.id}__finishTime`, `${item.id}__finishTime`, item.finishTime, "Finish Time")}</td>
               <td>${airportInput(`${item.id}__startCity`, `${item.id}__startCity`, item.startCity, "Departure City", true)}</td>
               <td>${airportInput(`${item.id}__finishCity`, `${item.id}__finishCity`, item.finishCity, "Finish City", true)}</td>
               <td><input name="${escapeHtml(item.id)}__status" value="${escapeHtml(item.status)}"></td>
@@ -1733,12 +1780,15 @@ function saveSegmentForm(event) {
   item.fax = data.get("fax");
   item.reference = data.get("reference");
   item.service = data.get("service");
+  const startTime = normaliseTime(data.get("startTime"));
+  const finishTime = normaliseTime(data.get("finishTime"));
+  if (!validateSegmentTimes(startTime, finishTime)) return;
   item.startCity = uppercaseCode(data.get("startCity"));
-  item.startDate = data.get("startDate");
-  item.startTime = data.get("startTime");
+  item.startDate = fromDateInputValue(data.get("startDate"));
+  item.startTime = startTime;
   item.finishCity = uppercaseCode(data.get("finishCity"));
-  item.finishDate = data.get("finishDate");
-  item.finishTime = data.get("finishTime");
+  item.finishDate = fromDateInputValue(data.get("finishDate"));
+  item.finishTime = finishTime;
   item.status = data.get("status");
   item.noPassengers = data.get("noPassengers");
   item.supplierRate = data.get("supplierRate") || item.supplierRate;
@@ -1862,9 +1912,13 @@ function saveQuickEditForm(event) {
   const data = new FormData(event.currentTarget);
   const current = booking();
   current.segments.forEach((item) => {
-    ["type", "reference", "service", "startDate", "finishDate", "startCity", "finishCity", "status"].forEach((field) => {
+    ["type", "reference", "service", "startDate", "startTime", "finishDate", "finishTime", "startCity", "finishCity", "status"].forEach((field) => {
       const key = `${item.id}__${field}`;
-      if (data.has(key)) item[field] = data.get(key);
+      if (!data.has(key)) return;
+      if (field === "startDate" || field === "finishDate") item[field] = fromDateInputValue(data.get(key));
+      else if (field === "startTime" || field === "finishTime") item[field] = normaliseTime(data.get(key));
+      else if (field === "startCity" || field === "finishCity") item[field] = uppercaseCode(data.get(key));
+      else item[field] = data.get(key);
     });
   });
   current.quickNote = data.get("quickNote");

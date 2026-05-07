@@ -354,6 +354,21 @@ input[readonly],
   width: 100%;
 }
 
+input[type="date"],
+input[type="time"] {
+  font-variant-numeric: tabular-nums;
+}
+
+input[type="date"]:invalid,
+input[type="time"]:invalid {
+  border-color: #b63b32;
+  background: #fff1ef;
+}
+
+.compact-date {
+  min-width: 98px;
+}
+
 .grid-table tr:nth-child(even) td {
   background: #eef6fb;
 }
